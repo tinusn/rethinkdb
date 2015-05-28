@@ -1,9 +1,11 @@
+/// <reference path="typings/tsd.d.ts" />
 /// <reference path="rethinkdb.d.ts" />
 
 // Test code for the rethinkdb.d.ts typescript metadata file
 // Includes all the runtime examples from the rethinkdb javascript documentation
 
 // http://rethinkdb.com/api/javascript/r/
+
 let r: rethinkdb.r = require('rethinkdb');
 let conn: rethinkdb.Connection;
 let callback: Function;

@@ -1,3 +1,5 @@
+/// <reference path="typings/tsd.d.ts" />
+
 // Type definitions for RethinkDB v2.0.2
 // Project: http://rethinkdb.com/
 // Definitions by: Tinus Aamand Norstved <https://github.com/tinusn/>
@@ -55,16 +57,51 @@ declare module rethinkdb {
 		 * Reference a database.
 		 */
 		db(name: string): Db;
-
+		
 		/**
 		 * Returns the currently visited document. Note that row does not work within subqueries to access nested documents; you should use anonymous functions to access those documents instead.
 		 */
-		row(name: string): Selection;
+		row(name?: string): Expression<any>;
+		
+		/**
+		 * Generate a random number between given (or implied) bounds.
+		 */
+		random(start?: number, end?: number, options?: RandomOptions);
 
-		now(): Operation<any>;
+		/**
+		 * Return a time object representing the current time in UTC. The command now() is computed once when the server receives the query, so multiple instances of r.now() will always return the same time inside a query.
+		 */		
+		now(): string;
+		
+		/**
+		 * Create a time object for a specific time.
+		 * 
+		 * A few restrictions exist on the arguments:
+		 * 
+		 * year is an integer between 1400 and 9,999.
+		 * month is an integer between 1 and 12.
+		 * day is an integer between 1 and 31.
+		 * hour is an integer.
+		 * minutes is an integer.
+		 * seconds is a double. Its value will be rounded to three decimal places (millisecond-precision).
+		 * timezone can be 'Z' (for UTC) or a string with the format ±[hh]:[mm].
+		 */
+		time(year: number, month: number, day: number, hour?: number, minutes?: number, seconds?: number, timezone?: string): string;
+		
+		/**
+		 * Create a time object based on seconds since epoch. The first argument is a double and will be rounded to three decimal places (millisecond-precision).
+		 */
+		epochTime(epochTime: number): string;
+		
+		/**
+		 * Create a time object based on an ISO 8601 date-time string (e.g. ‘2013-01-01T01:01:01+00:00’). We support all valid ISO 8601 formats except for week dates. If you pass an ISO 8601 date-time without a time zone, you must specify the time zone with the defaultTimezone argument. Read more about the ISO 8601 format at Wikipedia.
+		 */
+		ISO8601(iso8601Date: string, options?: ISO8601Options): string;
+		
 		branch(...expr: any[]): any;
 		tableDrop(name: string);
 		js(evalExpression: string);
+		
 		/**
 		 * Replace an object in a field instead of merging it with an existing object in a merge or update operation.
 		 */
@@ -80,6 +117,14 @@ declare module rethinkdb {
 
 		asc(name: string): string;
 		desc(name: string): string;
+	}
+	
+	interface ISO8601Options {
+		defaultTimezone: string;
+	}
+	
+	interface RandomOptions {
+		float: boolean;
 	}
 
 	class Connection {
@@ -693,7 +738,11 @@ Sorting without an index requires the server to hold the sequence in memory, and
 		geo?: boolean;
 	}
 
-	interface SingleRowSelection extends Writeable, Selection, rChanges, rPluck<Object>, rWithout<Object>, rMerge<Object>, rGetField<Object> {
+	interface SingleRowSelection extends Writeable, Selection, rChanges, rPluck<rObject>, rWithout<rObject>, rMerge<rObject>, rGetField<rObject>, rKeys, rSingleField<any> {
+		
+	}
+	
+	interface rKeys {
 		/**
 		 * Return an array containing all of the object’s keys.
 		 */
@@ -934,6 +983,18 @@ Sorting without an index requires the server to hold the sequence in memory, and
 		 * Remove one or more elements from an array at a given index. Returns the modified array.
 		 */
 		changeAt(index: number, value: string): rdbArray;
+		
+		/**
+		 * Get the nth element of a sequence, counting from zero. If the argument is negative, count from the last element.
+		 */
+		(index: number): Expression<any>;
+	}
+	
+	interface rSingleField<T> {
+		/**
+		 * Get a single field from an object. If called on a sequence, gets that field from every object in the sequence, skipping objects that lack it.
+		 */
+		(prop: string): Expression<T>;
 	}
 
 	interface rGetField<T> {
@@ -1100,7 +1161,7 @@ In soft durability mode RethinkDB will acknowledge the write immediately after r
 		index: string;
 	}
 
-	interface Sequence extends rInnerJoin<Stream>, rSample<Selection>, rPluck<Stream>, rWithout<Stream>, rMerge<Stream>, rGetField<Sequence>, rHasFields<Stream> {
+	interface Sequence extends rInnerJoin<Stream>, rSample<Selection>, rPluck<Stream>, rWithout<Stream>, rMerge<Stream>, rGetField<Sequence>, rHasFields<Stream>, rNth<Sequence>, rSingleField<Sequence> {
 		/**
 		 * Join tables using a field on the left-hand sequence matching primary keys or secondary indexes on the right-hand table. eqJoin is more efficient than other ReQL join types, and operates much faster. Documents in the result set consist of pairs of left-hand and right-hand documents, matched when the field on the left-hand side exists and is non-null and an entry with that field’s value exists in the specified index on the right-hand side.
 		 */
@@ -1139,7 +1200,7 @@ Sorting without an index requires the server to hold the sequence in memory, and
 		 * r.table('games').group('player').run(conn, callback)
 		 * r.table('games').group('player', 'type').max('points')('points').run(conn, callback)
 		 */
-		group(...fields: any[]);
+		group(...fields: any[]): GroupedStream;
 
 		/**
 		 * Takes a stream and partitions it into multiple groups based on the fields or functions provided.
@@ -1355,6 +1416,10 @@ For more information on RethinkDB’s sorting order, read the section in ReQL da
 		 */
 		limit(n: number): Selection;
 	}
+	
+	interface rObject extends rPluck<rObject>, rWithout<rObject>, rMerge<rObject>, rGetField<any>, rHasFields<Boolean>, rKeys, rSingleField<any> {
+		
+	}
 
 	interface rHasFields<T> {
 		/**
@@ -1371,7 +1436,7 @@ For more information on RethinkDB’s sorting order, read the section in ReQL da
 		/**
 		 * Plucks out one or more attributes from either an object or a sequence of objects (projection).
 		 */
-		pluck(selector: Object): T;
+		pluck(selector: rObject): T;
 	}
 
 	interface rWithout<T> {
@@ -1382,7 +1447,7 @@ For more information on RethinkDB’s sorting order, read the section in ReQL da
 		/**
 		 * The opposite of pluck; takes an object or a sequence of objects, and returns them with the specified paths removed.
 		 */
-		without(selector: Object): T;
+		without(selector: rObject): T;
 	}
 
 	interface rSlice<T> {
@@ -1414,8 +1479,15 @@ Sorting without an index requires the server to hold the sequence in memory, and
 		orderBy(...keys: string[]): T;
 		orderBy(...sorts: Sort[]): T;
 	}
+	
+	interface rNth<T> {
+		/**
+		 * Get the nth element of a sequence, counting from zero. If the argument is negative, count from the last element.
+		 */
+		nth(n: number): T;
+	}
 
-	interface Selection extends Sequence, Operation<Cursor>, Writeable, RqlDo, rChanges, rFilter<Selection>, rSlice<Selection> {
+	interface Selection extends Sequence, Operation<Cursor>, Writeable, RqlDo, rChanges, rFilter<Selection>, rSlice<Selection>, rNth<Selection> {
 		/**
 		 * Get a single field from an object. If called on a sequence, gets that field from every object in the sequence, skipping objects that lack it.
 		 */
@@ -1430,19 +1502,12 @@ Sorting without an index requires the server to hold the sequence in memory, and
  */
 		orderBy(...keys: any[]): rSelection<rdbArray>;
 
-		/**
-		 * Get the nth element of a sequence, counting from zero. If the argument is negative, count from the last element.
-		 */
-		nth(n: number): rSelection<any>;
-
-
-
 
 		indexesOf(obj: any): Selection;
 
 
 		groupedMapReduce(group: ExpressionFunction<any>, map: ExpressionFunction<any>, reduce: ReduceFunction<any>, base?: any): Selection;
-		groupBy(...aggregators: Aggregator[]): Expression<Object>; // TODO: reduction object
+		groupBy(...aggregators: Aggregator[]): Expression<rObject>; // TODO: reduction object
 
 
 
@@ -1465,30 +1530,123 @@ Sorting without an index requires the server to hold the sequence in memory, and
 		/**
 		 * Merge two or more objects together to construct a new object with properties from all. When there is a conflict between field names, preference is given to fields in the rightmost object in the argument list. merge also accepts a subquery function that returns an object, which will be used similarly to a map function.
 		 */
-		merge(query: Expression<Object>): Expression<Object>;
+		merge(query: Expression<rObject>): Expression<rObject>;
 	}
+	
+	interface MatchResult {
+		/**
+		 * The matched string
+		 */
+		str: string,
+		/**
+		 * The matched string’s start
+		 */
+		start: number;
+		/**
+		 * The matched string’s end
+		 */
+		end: number;
+		/**
+		 * The capture groups defined with parentheses
+		 */
+		groups: MatchResult[];
+	}
+	
+	
 
-	interface Expression<T> extends Writeable, Operation<T>, RqlDo {
-		(prop: string): Expression<any>;
-
-
-
-		and(b: boolean): Expression<boolean>;
-		or(b: boolean): Expression<boolean>;
-		eq(v: any): Expression<boolean>;
-		ne(v: any): Expression<boolean>;
-		not(): Expression<boolean>;
-
-		gt(value: T): Expression<boolean>;
-		ge(value: T): Expression<boolean>;
-		lt(value: T): Expression<boolean>;
-		le(value: T): Expression<boolean>;
-
-		add(n: number): Expression<number>;
-		sub(n: number): Expression<number>;
-		mul(n: number): Expression<number>;
+	interface Expression<T> extends Writeable, Operation<T>, RqlDo, rSingleField<Expression<any>> {
+		/**
+		 * Matches against a regular expression. 
+		 * 
+		 * If no match is found, returns null.
+		 * 
+		 * Accepts RE2 syntax (https://code.google.com/p/re2/wiki/Syntax). You can enable case-insensitive matching by prefixing the regular expression with (?i). See the linked RE2 documentation for more flags.
+		 */
+		match(regexp: string): Expression<MatchResult | any>;
+		
+		/**
+		 * Splits a string into substrings. Splits on whitespace when called with no arguments. When called with a separator, splits on that separator. When called with a separator and a maximum number of splits, splits on that separator at most max_splits times. (Can be called with null as the separator if you want to split on whitespace while still specifying max_splits.)
+		 * 
+		 * Mimics the behavior of Python’s string.split in edge cases, except for splitting on the empty string, which instead produces an array of single-character strings.
+		 */
+		split(seperator?: string, max_splits?: number): Expression<rdbArray>;
+		
+		/**
+		 * Uppercases a string.
+		 */
+		upcase(): Expression<string>;
+		
+		/**
+		 * Lowercases a string.
+		 */
+		downcase(): Expression<string>;
+		
+		/**
+		 * Sum two numbers, concatenate two strings, or concatenate 2 arrays.
+		 */
+		add(n: any): Expression<any>;
+		/**
+		 * Subtract two numbers.
+		 */
+		sub(n: any): Expression<any>;
+		/**
+		 * Multiply two numbers, or make a periodic array.
+		 */
+		mul(n: number): Expression<any>;
+		/**
+		 * Divide two numbers.
+		 */
 		div(n: number): Expression<number>;
+		/**
+		 * Find the remainder when dividing two numbers.
+		 */
 		mod(n: number): Expression<number>;
+		
+		/**
+		 * Compute the logical “and” of two or more values.
+		 */
+		and(b: boolean): Expression<boolean>;
+		/**
+		 * Compute the logical “or” of two or more values.
+		 */
+		or(b: boolean): Expression<boolean>;
+		/**
+		 * Test if two values are equal.
+		 */
+		eq(v: any): Expression<boolean>;
+		/**
+		 * Test if two values are not equal.
+		 */
+		ne(v: any): Expression<boolean>;
+		
+		/**
+		 * Test if the first value is greater than other.
+		 */
+		gt(value: T): Expression<boolean>;
+		/**
+		 * Test if the first value is greater than or equal to other.
+		 */
+		ge(value: T): Expression<boolean>;
+		/**
+		 * Test if the first value is less than other.
+		 */
+		lt(value: T): Expression<boolean>;
+		
+		/**
+		 * Test if the first value is less than or equal to other.
+		 */
+		le(value: T): Expression<boolean>;
+		
+		/**
+		 * Compute the logical inverse (not) of an expression.
+
+not can be called either via method chaining, immediately after an expression that evaluates as a boolean value, or by passing the expression as a parameter to not.
+		 */
+		not(bool?: boolean): Expression<boolean>;
+
+		
+
+		
 
 
 
