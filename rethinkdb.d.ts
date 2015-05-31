@@ -182,10 +182,49 @@ declare module rethinkdb {
 		 */
 		uuid(): Expression<string>;
 		
-		r.circle([longitude, latitude], radius[, {numVertices: 32, geoSystem: 'WGS84', unit: 'm', fill: true}]) → geometry
-r.circle(point, radius[, {numVertices: 32, geoSystem: 'WGS84', unit: 'm', fill: true}]) → geometry
+		/**
+		 * Construct a circular line or polygon. A circle in RethinkDB is a polygon or line approximating a circle of a given radius around a given center, consisting of a specified number of vertices (default 32).
+
+The center may be specified either by two floating point numbers, the latitude (−90 to 90) and longitude (−180 to 180) of the point on a perfect sphere (see Geospatial support for more information on ReQL’s coordinate system), or by a point object. The radius is a floating point number whose units are meters by default, although that may be changed with the unit argument.
+		 */
+		circle(longAndLatitude: number[]| Point, radius: number, options?: CircleOptions): Geometry;
 		
+		/**
+		 * Compute the distance between a point and another geometry object. At least one of the geometry objects specified must be a point.
+		 * 
+		 * If one of the objects is a polygon or a line, the point will be projected onto the line or polygon assuming a perfect sphere model before the distance is computed (using the model specified with geoSystem). As a consequence, if the polygon or line is extremely large compared to Earth’s radius and the distance is being computed with the default WGS84 model, the results of distance should be considered approximate due to the deviation between the ellipsoid and spherical models.
+		 */
+		distance(point1: Geometry, point2: Geometry, options?: DistanceOptions): number;
 		
+		/**
+		 * Convert a GeoJSON object to a ReQL geometry object.
+		 */
+		geojson(geojson: GeoJSON.GeoJsonObject|GeoJSON.GeometryObject|GeoJSON.LineString|GeoJSON.MultiLineString|GeoJSON.MultiPoint|GeoJSON.MultiPolygon|GeoJSON.Point|GeoJSON.Polygon): Geometry;
+		
+		/**
+		 * Construct a geometry object of type Line
+		 */
+		line(...points: number[][]): Line;
+		/**
+		 * Construct a geometry object of type Line
+		 */
+		line(...points: Point[]): Line;
+		
+		/**
+		 * Construct a geometry object of type Point. The point is specified by two floating point numbers, the longitude (−180 to 180) and latitude (−90 to 90) of the point on a perfect sphere. See Geospatial support for more information on ReQL’s coordinate system.
+		 */
+		point(longitude: number, latitude: number): Point;
+		
+		/**
+		 * Construct a geometry object of type Polygon. 
+		 */
+		polygon(...points: number[][]): Polygon;
+		/**
+		 * Construct a geometry object of type Polygon. 
+		 */
+		polygon(...points: Point[]): Polygon;
+
+
 
 		minval: any;
 		maxval: any;
@@ -213,6 +252,55 @@ r.circle(point, radius[, {numVertices: 32, geoSystem: 'WGS84', unit: 'm', fill: 
 		friday: number;
 		saturday: number;
 		sunday: number;
+	}
+
+	interface DistanceOptions {
+		/**
+	 * the reference ellipsoid to use for geographic coordinates. Possible values are WGS84 (the default), a common standard for Earth’s geometry, or unit_sphere, a perfect sphere of 1 meter radius.
+	 */
+		geoSystem?: string;
+		/**
+		 * Unit for the radius distance. Possible values are m (meter, the default), km (kilometer), mi (international mile), nm (nautical mile), ft (international foot).
+		 */
+		unit?: string;
+	}
+	
+	interface Line extends Geometry {
+		/**
+		 * Convert a Line object into a Polygon object. If the last point does not specify the same coordinates as the first point, polygon will close the polygon by connecting them.
+		 */
+		fill(): Polygon;
+	}
+
+	interface Point extends Geometry {
+
+	}
+	
+	interface Polygon extends Geometry {
+		/**
+		 * Use polygon2 to “punch out” a hole in polygon1. polygon2 must be completely contained within polygon1 and must have no holes itself (it must not be the output of polygonSub itself).
+		 */
+		polygonSub(polygon: Polygon): Polygon;
+		
+	}
+
+	interface CircleOptions extends DistanceOptions {
+		/**
+ * the number of vertices in the polygon or line. Defaults to 32.
+ */
+		numVertices?: number;
+		/**
+ * if true (the default) the circle is filled, creating a polygon; if false the circle is unfilled (creating a line).
+ */
+		fill?: boolean;
+	}
+
+	interface Geometry extends Includes<boolean>, Intersects<boolean> {
+		/**
+		 * Convert a ReQL geometry object to a GeoJSON object.
+		 */
+		toGeojson(): Operation<Object>;
+
 	}
 
 	interface HttpOptions {
@@ -451,7 +539,7 @@ n: n requests will be made
 		noreplyWait(): Promise<void>;
 	}
 
-	interface Db {
+	interface Db extends Admin<DbConfig> {
 		/**
  * Create a table. A RethinkDB table is a collection of JSON documents.
  *
@@ -475,7 +563,7 @@ n: n requests will be made
 		table(name: string, options?: TableOptions): Table;
 	}
 
-	interface Table extends Sequence, Writeable, Selection, Stream {
+	interface Table extends Sequence, Writeable, Selection, Stream, Admin<TableConfig> {
 		/**
  * Create a new secondary index on a table. Secondary indexes improve the speed of many read queries at the slight cost of increased storage space and decreased write performance. For more information about secondary indexes, read the article “Using secondary indexes in RethinkDB.”
  *
@@ -603,6 +691,46 @@ n: n requests will be made
  * Removes duplicates from elements in a sequence.
  */
 		distinct(options?: MinMaxIndexOptions): Stream;
+		
+		/**
+		 * Get all documents where the given geometry object intersects the geometry object of the requested geospatial index.
+		 */
+		getIntersecting(geometry: Geometry, option: IndexNameOptions): Selection;
+		
+		/**
+		 * Get all documents where the specified geospatial index is within a certain distance of the specified point (default 100 kilometers).
+		 */
+		getNearest(point: Point, options: GetNearestOptions): Selection;
+	}
+	
+	interface Admin<T> {
+		/**
+		 * Query (read and/or update) the configurations for individual tables or databases.
+		 */
+		config(): rSelection<T>;
+		
+		/**
+		 * Rebalances the shards of a table. When called on a database, all the tables in that database will be rebalanced.
+		 */
+		rebalance(): Operation<Object>;
+		
+		/**
+		 * 
+		 */
+		reconfigure
+	}
+	
+	interface ReconfigureOptions {
+		shards: Shard[];
+		replicas: 
+	}
+	
+	interface GetNearestOptions {
+		index: string;
+		maxResults?: number;
+		maxDist?: number;
+		unit?: string;
+		geoSystem?: string;
 	}
 
 	interface rSelection<T> {
@@ -1447,8 +1575,22 @@ n: n requests will be made
 	interface IndexNameOptions {
 		index: string;
 	}
+	
+	interface Includes<T> {
+		/**
+		 * Tests whether a geometry object is completely contained within another. When applied to a sequence of geometry objects, includes acts as a filter, returning a sequence of objects from the sequence that include the argument.
+		 */
+		includes(geometry: Geometry): T;
+	}
+	
+	interface Intersects<T> {
+		/**
+		 * Tests whether two geometry objects intersect with one another. When applied to a sequence of geometry objects, intersects acts as a filter, returning a sequence of objects from the sequence that intersect with the argument.
+		 */
+		intersects(geometry: Geometry): T;
+	}
 
-	interface Sequence extends rInnerJoin<Stream>, rSample<Selection>, rPluck<Stream>, rWithout<Stream>, rMerge<Stream>, rGetField<Sequence>, rHasFields<Stream>, rNth<Sequence>, rSingleField<Sequence>, rCoerceTo<rdbArray> {
+	interface Sequence extends rInnerJoin<Stream>, rSample<Selection>, rPluck<Stream>, rWithout<Stream>, rMerge<Stream>, rGetField<Sequence>, rHasFields<Stream>, rNth<Sequence>, rSingleField<Sequence>, rCoerceTo<rdbArray>, Includes<Sequence> , Intersects<Sequence> {
 		/**
  * Join tables using a field on the left-hand sequence matching primary keys or secondary indexes on the right-hand table. eqJoin is more efficient than other ReQL join types, and operates much faster. Documents in the result set consist of pairs of left-hand and right-hand documents, matched when the field on the left-hand side exists and is non-null and an entry with that field’s value exists in the specified index on the right-hand side.
  */

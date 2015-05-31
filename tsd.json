@@ -10,6 +10,9 @@
     },
     "node/node.d.ts": {
       "commit": "70737c2a2496f7a13c4da63eb00081cad94d19f1"
+    },
+    "geojson/geojson.d.ts": {
+      "commit": "2ca2ee37d47df607cc006824c516050a4cf869f0"
     }
   }
 }
