@@ -61,7 +61,7 @@ declare module rethinkdb {
 		/**
 		 * Returns the currently visited document. Note that row does not work within subqueries to access nested documents; you should use anonymous functions to access those documents instead.
 		 */
-		row(name?: string): Expression<any>;
+		row(name?: string): Expression<any>|Expression<rArray>;
 		
 		/**
 		 * Generate a random number between given (or implied) bounds.
@@ -248,16 +248,454 @@ declare module rethinkdb {
 		saturday: number;
 		sunday: number;
 	}
+	
+	interface Db extends Admin<DbConfig>, Wait {
+		/**
+ 		 * Create a table. A RethinkDB table is a collection of JSON documents.
+ 		 *
+ 		 * If a table with the same name already exists, the command throws RqlRuntimeError.
+ 		 *
+ 		 * Note: Only alphanumeric characters and underscores are valid for the table name.
+ 		 */
+		tableCreate(tableName: string, options?: TableCreateOptions): Operation<TableCreateResult>;
+		/**
+ 		 * Drop a table from a database. The table and all its data will be deleted.
+		 */
+		tableDrop(tableName: string): Operation<TableDropResult>;
+		/**
+ 		 * List all table names in a database
+ 		 */
+		tableList(): Operation<string[]>;
 
-	interface DistanceOptions {
 		/**
-		 * the reference ellipsoid to use for geographic coordinates. Possible values are WGS84 (the default), a common standard for Earth’s geometry, or unit_sphere, a perfect sphere of 1 meter radius.
-		 */
-		geoSystem?: string;
+ 		 * Reference a table.
+ 		 */
+		table(name: string, options?: TableOptions): Table;
+	}
+
+	interface Table extends Sequence, Stream, Admin<TableConfig>, Wait, Operation<Cursor> {
 		/**
-		 * Unit for the radius distance. Possible values are m (meter, the default), km (kilometer), mi (international mile), nm (nautical mile), ft (international foot).
+ 		 * Create a new secondary index on a table. Secondary indexes improve the speed of many read queries at the slight cost of increased storage space and decreased write performance. For more information about secondary indexes, read the article “Using secondary indexes in RethinkDB.”
+ 		 *
+ 		 * RethinkDB supports different types of secondary indexes:
+ 		 *
+	     * Simple indexes based on the value of a single field.
+		 * Compound indexes based on multiple fields.
+		 * Indexes based on arbitrary expressions.
+		 *
+		 * The indexFunction can be an anonymous function or a binary representation obtained from the function field of indexStatus.
+		 *
+		 * If successful, createIndex will return an object of the form {"created": 1}. If an index by that name already exists on the table, a RqlRuntimeError will be thrown.
 		 */
-		unit?: string;
+		indexCreate(indexName: string, index: ExpressionFunction<Sequence>): Operation<CreateResult>;
+
+		/**
+		 * Create a new secondary index on a table. Secondary indexes improve the speed of many read queries at the slight cost of increased storage space and decreased write performance. For more information about secondary indexes, read the article “Using secondary indexes in RethinkDB.”
+		 *
+		 * RethinkDB supports different types of secondary indexes:
+		 *
+		 * Multi indexes based on arrays of values, created when the multi optional argument is true.
+		 * Geospatial indexes based on indexes of geometry objects, created when the geo optional argument is true.
+		 *
+		 * If successful, createIndex will return an object of the form {"created": 1}. If an index by that name already exists on the table, a RqlRuntimeError will be thrown.
+		 */
+		indexCreate(indexName: string, indexOptions?: IndexCreateOptions): Operation<CreateResult>;
+
+		/**
+		 * Delete a previously created secondary index of this table.
+		 */
+		indexDrop(name: string): Operation<DropResult>;
+
+		/**
+		 * List all the secondary indexes of this table.
+		 */
+		indexList(): Operation<string[]>;
+
+		/**
+		 * Rename an existing secondary index on a table. If the optional argument overwrite is specified as true, a previously existing index with the new name will be deleted and the index will be renamed. If overwrite is false (the default) an error will be raised if the new index name already exists.
+		 */
+		indexRename(oldIndexName: string, newIndexName: string, options?: OverwriteOptions): Operation<RenameResult>;
+
+		/**
+		 * Get the status of the specified indexes on this table, or the status of all indexes on this table if no indexes are specified.
+		 */
+		indexStatus(...indexes: string[]): rArray;
+
+		/**
+		 * Wait for the specified indexes on this table to be ready, or for all indexes on this table to be ready if no indexes are specified.
+		 */
+		indexWait(...indexes: string[]): rArray;
+
+		/**
+		 * Insert documents into a table. Accepts a single document, an array of documents or a stream
+		 *
+		 * Example: Insert a document into the table posts:
+		 * r.table("posts").insert({
+		 * id: 1,
+		 * title: "Lorem ipsum",
+		 * content: "Dolor sit amet"
+		 * }).run(conn, callback)
+		 *
+		 * Example: Insert multiple documents into the table users:
+		 * r.table("users").insert([
+		 * {id: "william", email: "william@rethinkdb.com"},
+		 * {id: "lara", email: "lara@rethinkdb.com"}
+		 * ]).run(conn, callback)
+		 *
+		 * Example: Copy the documents from posts to postsBackup:
+		 * r.table("postsBackup").insert( r.table("posts") ).run(conn, callback)
+		 */
+		insert(object: any | any[]| Table, options?: InsertOptions): Operation<InsertResult>;
+
+		/**
+		 * Get a document by primary key.
+		 *
+		 * If no document exists with that primary key, get will return null.
+		 */
+		get(key: string | number): SingleRowSelection;
+
+		/**
+		 * Get all documents where the given value matches the value of the requested index.
+		 *
+		 * Example: Without an index argument, we default to the primary index. While get will either return the document or null when no document with such a primary key value exists, this will return either a one or zero length stream.
+		 * r.table('dc').getAll('superman').run(conn, callback)
+		 *
+		 * Example: Secondary index keys are not guaranteed to be unique so we cannot query via get when using a secondary index.
+		 * r.table('marvel').getAll('man_of_steel', {index:'code_name'}).run(conn, callback)
+		 *
+		 * Example: You can get multiple documents in a single call to get_all.
+		 * r.table('dc').getAll('superman', 'ant man').run(conn, callback)
+		 */
+		getAll(...keys: any[]): rSelection<any>;
+
+		/**
+		 * ensures that writes on a given table are written to permanent storage. Queries that specify soft durability ({durability: 'soft'}) do not give such guarantees, so sync can be used to ensure the state of these queries. A call to sync does not return until all previous writes to the table are persisted.
+		 */
+		sync(): Operation<void>;
+
+		/**
+		 * Get all documents between two keys.
+		 *
+		 * You may also use the special constants r.minval and r.maxval for boundaries, which represent “less than any index key” and “more than any index key” respectively. For instance, if you use r.minval as the lower key, then between will return all documents whose primary keys (or indexes) are less than the specified upper key.
+		 *
+		 * Note that compound indexes are sorted using lexicographical order.
+		 *
+		 * Note: Between works with secondary indexes on date fields, but will not work with unindexed date fields. To test whether a date value is between two other dates, use the during command, not between.
+		 *
+		 * Note: RethinkDB uses byte-wise ordering for between and does not support Unicode collations; non-ASCII characters will be sorted by UTF-8 codepoint.
+		 *
+		 * Note: If you chain between after orderBy, the between command must use the index specified in orderBy, and will default to that index. Trying to specify another index will result in a RqlRuntimeError.
+		 */
+		between(lower: any, upper: any, index?: IndexOptions): rSelection<any>;
+
+		/**
+		 * Removes duplicates from elements in a sequence.
+		 */
+		distinct(options?: IndexNameOptions): Stream;
+		
+		/**
+		 * Get all documents where the given geometry object intersects the geometry object of the requested geospatial index.
+		 */
+		getIntersecting(geometry: Geometry, option: IndexNameOptions): rSelection<any>;
+		
+		/**
+		 * Get all documents where the specified geospatial index is within a certain distance of the specified point (default 100 kilometers).
+		 */
+		getNearest(point: Point, options: GetNearestOptions): rSelection<any>;
+		
+		/**
+		 * Return the status of a table.
+		 */
+		status(): rSelection<TableStatus>;
+		
+		/**
+		 * 
+		 * Sort the sequence by document values of the given key(s). To specify the ordering, wrap the attribute with either r.asc or r.desc (defaults to ascending).
+		 * 
+		 * Sorting without an index requires the server to hold the sequence in memory, and is limited to 100,000 documents (or the setting of the arrayLimit option for run). Sorting with an index can be done on arbitrarily large tables, or after a between command using the same index.
+		 * 
+		 * Example: Order all the posts using the index date.
+		 * r.table('posts').orderBy({index: 'date'}).run(conn, callback)
+		 * 
+		 * If you’re doing ad-hoc analysis and know your table won’t have more then 100,000 elements (or you’ve changed the setting of the array_limit option for run) you can run orderBy without an index:
+		 * r.table('small_table').orderBy('date')
+		 */
+		orderBy(...keys: any[]): rSelection<Stream>;
+	}
+
+	interface rSelection<T> extends rOrderBy<rSelection<rArray>>, Operation<Cursor>, rFilter<rSelection<T>>, rNth<T>, rLimit<T>, rChanges {
+
+	}
+
+	/**
+	 * Cursors and feeds implement the same interface as Node’s EventEmitter.
+	 */
+	interface Cursor extends rNext, rEach, rToArray, rSelection<any>, NodeJS.EventEmitter  {
+		/**
+		 * Close a cursor. Closing a cursor cancels the corresponding query and frees the memory associated with the open request.
+		 */
+		close(): void;
+	}
+
+	interface SingleRowSelection extends Writeable, rSelection<any>, rChanges, rPluck<rObject>, rWithout<rObject>, rMerge<rObject>, rGetField<rObject>, rKeys, rSingleField<any> {
+		/**
+		 * Convert a ReQL value or object to a JSON string. You may use either toJsonString or toJSON.
+		 */
+		toJsonString: Expression<string>;
+		/**
+		 * Convert a ReQL value or object to a JSON string. You may use either toJsonString or toJSON.
+		 */
+		toJSON(): Expression<string>;
+	}
+
+	interface Stream extends Sequence, rChanges, rFilter<Stream>, rStreamArray<Stream>, rSlice<Stream>, rUninion<Stream>, rSample<rArray> {
+	}
+
+	interface rBinary extends rSlice<rBinary>, rCoerceTo<string> {
+		count(): number;
+		typeOf(): any;
+		info(): any;
+	}
+
+	interface rArray extends Sequence, rStreamArray<rArray>, rNext, rEach, rToArray, rFilter<rArray>, rJoins<rArray>, rSlice<rArray>, rUninion<rArray>, rSample<rArray>, rPluck<rArray>, rWithout<rArray>, rMerge<rArray>, rHasFields<rArray>, rCoerceTo<rObject>, rMap<rArray>, rWithFields<rArray>, rSkip<rArray>, rLimit<rArray>, Operation<rArray> {
+		/**
+		 * Append a value to an array.
+		 */
+		append(prop: string|Object): Expression<rArray>;
+
+		/**
+		 * Prepend a value to an array.
+		 */
+		prepend(prop: string): Expression<rArray>;
+
+		/**
+		 * Remove the elements of one array from another array.
+		 */
+		difference(arr: string[]): Expression<rArray>;
+
+		/**
+		 * Add a value to an array and return it as a set (an array with distinct values).
+		 */
+		setInsert(prop: string): Expression<rArray>;
+
+		/**
+		 * Add a several values to an array and return it as a set (an array with distinct values).
+		 */
+		setUnion(arr: string[]): Expression<rArray>;
+
+		/**
+		 * Intersect two arrays returning values that occur in both of them as a set (an array with distinct values).
+		 */
+		setIntersection(arr: string[]): Expression<rArray>;
+
+		/**
+		 * Remove the elements of one array from another and return them as a set (an array with distinct values).
+		 */
+		setDifference(arr: string[]): Expression<rArray>;
+
+		/**
+		 * Insert a value in to an array at a given index. Returns the modified array.
+		 */
+		insertAt(index: number, value: string): rArray;
+
+		/**
+		 * Insert several values in to an array at a given index. Returns the modified array.
+		 */
+		spliceAt(index: number, value: string): rArray;
+
+		/**
+		 * Remove one or more elements from an array at a given index. Returns the modified array.
+		 */
+		deleteAt(index: number, endIndex?: number): rArray;
+
+		/**
+		 * Remove one or more elements from an array at a given index. Returns the modified array.
+		 */
+		changeAt(index: number, value: string): rArray;
+		
+		/**
+		 * Get the nth element of a sequence, counting from zero. If the argument is negative, count from the last element.
+		 */
+		(index: number): Expression<any>;
+	}
+
+	interface rFeed extends rEach {
+
+	}
+
+	interface Sequence extends rJoins<Stream>, rSample<rSelection<any>>, rPluck<Stream>, rWithout<Stream>, rMerge<Stream>, rGetField<Sequence>, rHasFields<Stream>, rNth<Sequence>, rSingleField<Sequence>, rCoerceTo<rArray>, Includes<Sequence>, Intersects<Sequence>, rMap<Stream>, rWithFields<Stream>, rSkip<Stream>, rLimit<Stream>, rOrderBy<rArray>, RqlDo, Writeable {
+		/**
+		 * Join tables using a field on the left-hand sequence matching primary keys or secondary indexes on the right-hand table. eqJoin is more efficient than other ReQL join types, and operates much faster. Documents in the result set consist of pairs of left-hand and right-hand documents, matched when the field on the left-hand side exists and is non-null and an entry with that field’s value exists in the specified index on the right-hand side.
+		 */
+		eqJoin(leftField: string, rightTable: rSelection<any>, index?: IndexNameOptions): JoinResult;
+		
+		/**
+		 * Get the indexes of an element in a sequence. If the argument is a predicate, get the indexes of all elements matching it.
+		 */
+		offsetsOf(expr: string | Function): rArray;
+
+		/**
+		 * Test if a sequence is empty.
+		 */
+		isEmpty(): Expression<boolean>;
+
+		/**
+		 * Takes a stream and partitions it into multiple groups based on the fields or functions provided.
+		 *
+		 * With the multi flag single documents can be assigned to multiple groups, similar to the behavior of multi-indexes. When multi is true and the grouping value is an array, documents will be placed in each group that corresponds to the elements of the array. If the array is empty the row will be ignored.
+		 *
+		 * Examples:
+		 * r.table('games').group('player').run(conn, callback)
+		 * r.table('games').group('player', 'type').max('points')('points').run(conn, callback)
+		 */
+		group(...fields: any[]): GroupedStream;
+
+		/**
+		 * Takes a stream and partitions it into multiple groups based on the fields or functions provided.
+		 *
+		 * With the multi flag single documents can be assigned to multiple groups, similar to the behavior of multi-indexes. When multi is true and the grouping value is an array, documents will be placed in each group that corresponds to the elements of the array. If the array is empty the row will be ignored.
+		 *
+		 * Examples:
+		 * r.table('games').group(function(game) {
+		 * return game.pluck('player', 'type')
+		 * }).max('points')('points').run(conn, callback)
+		 *
+		 * r.table('matches').group(
+			  [r.row('date').year(), r.row('date').month()]
+			).count().run(conn, callback)
+		 */
+		group(expression: Function, options?: GroupOptions): GroupedStream;
+
+		/**
+		 * Produce a single value from a sequence through repeated application of a reduction function. The reduction function can be called on:
+		 * * two elements of the sequence
+		 * * one element of the sequence and one result of a previous reduction
+		 * * two results of previous reductions
+		 * The reduction function can be called on the results of two previous reductions because the reduce command is distributed and parallelized across shards and CPU cores. A common mistaken when using the reduce command is to suppose that the reduction is executed from left to right. Read the map-reduce in RethinkDB article to see an example.
+		 * If the sequence is empty, the server will produce a RqlRuntimeError that can be caught with default.
+			If the sequence has only one element, the first element will be returned.
+		 */
+		reduce(r: ReduceFunction<any>): Expression<any>;
+
+		/**
+		 * Count the number of elements in the sequence. With a single argument, count the number of elements equal to it. If the argument is a function, it is equivalent to calling filter before count.
+		 */
+		count(): Expression<number>;
+
+		/**
+		 * Sums all the elements of a sequence. If called with a field name, sums all the values of that field in the sequence, skipping elements of the sequence that lack that field. If called with a function, calls that function on every element of the sequence and sums the results, skipping elements of the sequence where that function returns null or a non-existence error.
+		 */
+		sum(arr: number[]): Expression<number>;
+		/**
+		 * Sums all the elements of a sequence. If called with a field name, sums all the values of that field in the sequence, skipping elements of the sequence that lack that field. If called with a function, calls that function on every element of the sequence and sums the results, skipping elements of the sequence where that function returns null or a non-existence error.
+		 */
+		sum(field: string): Expression<number>;
+		/**
+		 * Sums all the elements of a sequence. If called with a field name, sums all the values of that field in the sequence, skipping elements of the sequence that lack that field. If called with a function, calls that function on every element of the sequence and sums the results, skipping elements of the sequence where that function returns null or a non-existence error.
+		 */
+		sum(expr: Function): Expression<number>;
+
+		/**
+		 * Averages all the elements of a sequence. If called with a field name, averages all the values of that field in the sequence, skipping elements of the sequence that lack that field. If called with a function, calls that function on every element of the sequence and averages the results, skipping elements of the sequence where that function returns null or a non-existence error.
+		 *
+		 * Produces a non-existence error when called on an empty sequence. You can handle this case with default.
+		 */
+		avg(arr: number[]): Expression<number>;
+		/**
+		 * Averages all the elements of a sequence. If called with a field name, averages all the values of that field in the sequence, skipping elements of the sequence that lack that field. If called with a function, calls that function on every element of the sequence and averages the results, skipping elements of the sequence where that function returns null or a non-existence error.
+		 *
+		 * Produces a non-existence error when called on an empty sequence. You can handle this case with default.
+		 */
+		avg(field: string): Expression<number>;
+		/**
+		 * Averages all the elements of a sequence. If called with a field name, averages all the values of that field in the sequence, skipping elements of the sequence that lack that field. If called with a function, calls that function on every element of the sequence and averages the results, skipping elements of the sequence where that function returns null or a non-existence error.
+		 *
+		 * Produces a non-existence error when called on an empty sequence. You can handle this case with default.
+		 */
+		avg(expr: Function): Expression<number>;
+
+		/**
+		 * Finds the minimum element of a sequence. The min command can be called with:
+		 * * a field name, to return the element of the sequence with the smallest value in that field;
+		 * * an index (the primary key or a secondary index), to return the element of the sequence with the smallest value in that index;
+		 * * a function, to apply the function to every element within the sequence and return the element which returns the smallest value from the function, ignoring any elements where the function produces a non-existence error.
+		 * 
+		 * Calling min on an empty sequence will throw a non-existence error; this can be handled using the default command.
+		 */
+		min(field?: string): Expression<any>;
+		/**
+		 * Finds the minimum element of a sequence. The min command can be called with:
+		 * * a field name, to return the element of the sequence with the smallest value in that field;
+		 * * an index (the primary key or a secondary index), to return the element of the sequence with the smallest value in that index;
+		 * * a function, to apply the function to every element within the sequence and return the element which returns the smallest value from the function, ignoring any elements where the function produces a non-existence error.
+		 * 
+		 * Calling min on an empty sequence will throw a non-existence error; this can be handled using the default command.
+		 */
+		min(options: IndexNameOptions): Expression<any>;
+		/**
+		 * Finds the minimum element of a sequence. The min command can be called with:
+		 * * a field name, to return the element of the sequence with the smallest value in that field;
+		 * * an index (the primary key or a secondary index), to return the element of the sequence with the smallest value in that index;
+		 * * a function, to apply the function to every element within the sequence and return the element which returns the smallest value from the function, ignoring any elements where the function produces a non-existence error.
+		 * 
+		 * Calling min on an empty sequence will throw a non-existence error; this can be handled using the default command.
+		 */
+		min(expr: Function): Expression<any>;
+
+		/**
+		 * Finds the maximum element of a sequence.
+		 */
+		max(field?: string): Expression<any>;
+		/**
+		 * Finds the maximum element of a sequence.
+		 */
+		max(options: IndexNameOptions): Expression<any>;
+		/**
+		 * Finds the maximum element of a sequence.
+		 */
+		max(expr: Function): Expression<any>;
+
+		/**
+		 * Removes duplicates from elements in a sequence.
+		 */
+		distinct(): rArray;
+
+		/**
+		 * When called with values, returns true if a sequence contains all the specified values. When called with predicate functions, returns true if for each predicate there exists at least one element of the stream where that predicate returns true.
+		 *
+		 * Values and predicates may be mixed freely in the argument list.
+		 */
+		contains(prop: string): Expression<boolean>;
+
+		/**
+		 * When called with values, returns true if a sequence contains all the specified values. When called with predicate functions, returns true if for each predicate there exists at least one element of the stream where that predicate returns true.
+		 *
+		 * Values and predicates may be mixed freely in the argument list.
+		 */
+		contains(expr: Function): Expression<boolean>;
+		
+		/**
+		 * Loop over a sequence, evaluating the given write query for each element.
+		 */
+		forEach(write_query: Function): Expression<any>;
+	}
+
+	interface GroupedStream {
+		/**
+		 * Takes a grouped stream or grouped data and turns it into an array of objects representing the groups. Any commands chained after ungroup will operate on this array, rather than operating on each group individually. This is useful if you want to e.g. order the groups by the value of their reduction.
+		 *
+		 * The format of the array returned by ungroup is the same as the default native format of grouped data in the javascript driver and data explorer.
+		 *
+		 * Examples:
+		 * r.table('games')
+			.group('player').max('points')('points')
+			.ungroup().orderBy(r.desc('reduction')).run(conn, callback)
+		 */
+		ungroup(): rArray;
+	}
+
+	interface rObject extends rPluck<rObject>, rWithout<rObject>, rMerge<rObject>, rGetField<any>, rHasFields<Boolean>, rKeys, rSingleField<any>, rCoerceTo<rArray> {
+
 	}
 
 	interface Line extends Geometry {
@@ -279,6 +717,388 @@ declare module rethinkdb {
 
 	}
 
+	interface Geometry extends Includes<boolean>, Intersects<boolean> {
+		/**
+		 * Convert a ReQL geometry object to a GeoJSON object.
+		 */
+		toGeojson(): Operation<Object>;
+	}
+
+	interface Time extends Operation<string> {
+		/**
+ * Return a new time object with a different timezone. While the time stays the same, the results returned by methods such as hours() will change since they take the timezone into account. The timezone argument has to be of the ISO 8601 format.
+ */
+		inTimezone(timezone: string): Time;
+		
+		/**
+ * Return the timezone of the time object.
+ */
+		timezone(): string;
+		
+		/**
+ * Return if a time is between two other times (by default, inclusive for the start, exclusive for the end).
+ */
+		during(startTime: Time, endTime: Time, options?: LeftRightBound): boolean;
+		
+		/**
+ * Return a new time object only based on the day, month and year (ie. the same day at 00:00).
+ */
+		date(): Time;
+		
+		/**
+ * Return the number of seconds elapsed since the beginning of the day stored in the time object.
+ */
+		timeOfDay(): number;
+		
+		/**
+ * Return the year of a time object.
+ */
+		year(): number;
+		
+		/**
+ * Return the month of a time object as a number between 1 and 12. For your convenience, the terms r.january, r.february etc. are defined and map to the appropriate integer.
+ */
+		month(): number;
+		
+		/**
+ * Return the day of a time object as a number between 1 and 31.
+ */
+		day(): number;
+		
+		/**
+ * Return the day of week of a time object as a number between 1 and 7 (following ISO 8601 standard). For your convenience, the terms r.monday, r.tuesday etc. are defined and map to the appropriate integer.
+ */
+		dayOfWeek(): number;
+		
+		/**
+ * Return the day of the year of a time object as a number between 1 and 366 (following ISO 8601 standard).
+ */
+		dayOfYear(): number;
+		
+		/**
+ * Return the hour in a time object as a number between 0 and 23.
+ */
+		hours(): number;
+		
+		/**
+ * Return the minute in a time object as a number between 0 and 59.
+ */
+		minutes: number;
+		
+		/**
+ * Return the seconds in a time object as a number between 0 and 59.999 (double precision).
+ */
+		seconds(): number;
+		
+		/**
+ * Convert a time object to a string in ISO 8601 format.
+ */
+		toISO8601(): string;
+		
+		/**
+ * Convert a time object to its epoch time.
+ */
+		toEpochTime(): number;
+	}
+
+	class Connection {
+		/**
+		 * Close an open connection.
+		 * 
+		 * Closing a connection normally waits until all outstanding requests have finished and then frees any open resources associated with the connection. By passing false to the noreply_wait optional argument, the connection will be closed immediately, possibly aborting any outstanding noreply writes.
+		 * 
+		 * A noreply query is executed by passing the noreply option to the run command, indicating that run() should not wait for the query to complete before returning. You may also explicitly wait for a noreply query to complete by using the noreplyWait command.
+ 		 */
+		close(options: noReplyWaitOptions, callback: (err: Error) => void): void;
+		
+		/**
+ 		 * Close an open connection.
+ 		 *
+ 	 	 * Closing a connection normally waits until all outstanding requests have finished and then frees any open resources associated with the connection. By passing false to the noreply_wait optional argument, the connection will be closed immediately, possibly aborting any outstanding noreply writes.
+ 		 *
+ 		 * A noreply query is executed by passing the noreply option to the run command, indicating that run() should not wait for the query to complete before returning. You may also explicitly wait for a noreply query to complete by using the noreplyWait command.
+ 		 */
+		close(callback: (err: Error) => void): void;
+		
+		/**
+ 		 * Close an open connection.
+		 *
+ 		 * Closing a connection normally waits until all outstanding requests have finished and then frees any open resources associated with the connection. By passing false to the noreply_wait optional argument, the connection will be closed immediately, possibly aborting any outstanding noreply writes.
+ 		 *
+ 		 * A noreply query is executed by passing the noreply option to the run command, indicating that run() should not wait for the query to complete before returning. You may also explicitly wait for a noreply query to complete by using the noreplyWait command.
+ 		 */
+		close(options?: noReplyWaitOptions): Promise<void>;
+
+		/**
+ 		 * Close and reopen a connection.
+ 		 *
+ 		 * Closing a connection normally waits until all outstanding requests have finished and then frees any open resources associated with the connection. By passing false to the noreply_wait optional argument, the connection will be closed immediately, possibly aborting any outstanding noreply writes.
+ 		 *
+ 		 * A noreply query is executed by passing the noreply option to the run command, indicating that run() should not wait for the query to complete before returning. You may also explicitly wait for a noreply query to complete by using the noreplyWait command.
+ 		 */
+		reconnect(options: noReplyWaitOptions, callback: (err: Error, conn: Connection) => void): Connection;
+		
+		/**
+ 		 * Close and reopen a connection.
+ 		 *
+ 		 * Closing a connection normally waits until all outstanding requests have finished and then frees any open resources associated with the connection. By passing false to the noreply_wait optional argument, the connection will be closed immediately, possibly aborting any outstanding noreply writes.
+ 		 *
+ 		 * A noreply query is executed by passing the noreply option to the run command, indicating that run() should not wait for the query to complete before returning. You may also explicitly wait for a noreply query to complete by using the noreplyWait command.
+ 		 */
+		reconnect(callback: (err: Error, conn: Connection) => void): Connection;
+		/**
+ 		 * Close and reopen a connection.
+ 		 *
+ 		 * Closing a connection normally waits until all outstanding requests have finished and then frees any open resources associated with the connection. By passing false to the noreply_wait optional argument, the connection will be closed immediately, possibly aborting any outstanding noreply writes.
+ 		 *
+ 		 * A noreply query is executed by passing the noreply option to the run command, indicating that run() should not wait for the query to complete before returning. You may also explicitly wait for a noreply query to complete by using the noreplyWait command.
+ 		 */
+		reconnect(options?: noReplyWaitOptions): Promise<Connection>;
+
+		/**
+ 		 * Change the default database on this connection.
+ 		 */
+		use(dbName: string): void;
+
+		/**
+ 		 * ensures that previous queries with the noreply flag have been processed by the server. Note that this guarantee only applies to queries run on the given connection.
+ 		 */
+		noreplyWait(callback: (err: Error) => void): void;
+		/**
+ 		 * ensures that previous queries with the noreply flag have been processed by the server. Note that this guarantee only applies to queries run on the given connection.
+ 		 */
+		noreplyWait(): Promise<void>;
+	}
+
+	interface rHasFields<T> {
+		/**
+		 * Test if an object has one or more fields. An object has a field if it has that key and the key has a non-null value. For instance, the object {'a': 1,'b': 2,'c': null} has the fields a and b.
+		 */
+		hasFields(...fields: string[]): T;
+	}
+
+	interface rPluck<T> {
+		/**
+		 * Plucks out one or more attributes from either an object or a sequence of objects (projection).
+		 */
+		pluck(...props: string[]): T;
+		/**
+		 * Plucks out one or more attributes from either an object or a sequence of objects (projection).
+		 */
+		pluck(selector: rObject): T;
+	}
+
+	interface rWithout<T> {
+		/**
+		 * The opposite of pluck; takes an object or a sequence of objects, and returns them with the specified paths removed.
+		 */
+		without(...props: string[]): T;
+		/**
+		 * The opposite of pluck; takes an object or a sequence of objects, and returns them with the specified paths removed.
+		 */
+		without(selector: rObject): T;
+	}
+
+	interface rSlice<T> {
+		/**
+		 * Return the elements of a sequence within the specified range.
+		 */
+		slice(start: number, end?: number): T;
+		/**
+		 * Return the elements of a sequence within the specified range.
+		 */
+		slice(start: number, end: number, options?: LeftRightBound): T;
+		/**
+		 * Return the elements of a sequence within the specified range.
+		 */
+		slice(start: number, options?: LeftRightBound): T;
+	}
+
+	interface JoinResult {
+		left: any;
+		right: any;
+	}
+
+	interface rOrderBy<T> {
+		/**
+		 * 
+		 * Sort the sequence by document values of the given key(s). To specify the ordering, wrap the attribute with either r.asc or r.desc (defaults to ascending).
+		 * 
+		 * Sorting without an index requires the server to hold the sequence in memory, and is limited to 100,000 documents (or the setting of the arrayLimit option for run). Sorting with an index can be done on arbitrarily large tables, or after a between command using the same index.
+		 * 
+		 * Example: Order all the posts using the index date.
+		 * r.table('posts').orderBy({index: 'date'}).run(conn, callback)
+		 * 
+		 * Example: Order a sequence without an index.
+		 * r.table('posts').get(1)('comments').orderBy('date')
+		 */
+		orderBy(...keys: any[]): T;
+	}
+
+	interface rNth<T> extends RqlDo {
+		/**
+		 * Get the nth element of a sequence, counting from zero. If the argument is negative, count from the last element.
+		 */
+		nth(n: number): T;
+	}
+
+	interface ExpressionFunction<U> {
+		(doc: Expression<any>): Expression<U>;
+	}
+
+	interface JoinFunction<U> {
+		(left: Expression<any>, right: Expression<any>): Expression<U>;
+	}
+
+	interface ReduceFunction<U> {
+		(left: Expression<any>, right: Expression<any>): Expression<U>;
+	}
+
+	interface rMerge<T> {
+		/**
+		 * Merge two or more objects together to construct a new object with properties from all. When there is a conflict between field names, preference is given to fields in the rightmost object in the argument list. merge also accepts a subquery function that returns an object, which will be used similarly to a map function.
+		 */
+		merge(...query: Expression<rObject>[]): Expression<rObject>;
+		
+		merge(query: Expression<rObject>): Expression<rObject>;
+	}
+
+	interface MatchResult {
+		/**
+		 * The matched string
+		 */
+		str: string,
+		/**
+		 * The matched string’s start
+		 */
+		start: number;
+		/**
+		 * The matched string’s end
+		 */
+		end: number;
+		/**
+		 * The capture groups defined with parentheses
+		 */
+		groups: MatchResult[];
+	}
+
+	interface Expression<T> extends Writeable, Operation<T>, RqlDo, rSingleField<Expression<T>>, rCoerceTo<string>, rHasFields<T> {
+		/**
+		 * Matches against a regular expression. 
+		 * 
+		 * If no match is found, returns null.
+		 * 
+		 * Accepts RE2 syntax (https://code.google.com/p/re2/wiki/Syntax). You can enable case-insensitive matching by prefixing the regular expression with (?i). See the linked RE2 documentation for more flags.
+		 */
+		match(regexp: string): Expression<MatchResult | any>;
+		
+		/**
+		 * Splits a string into substrings. Splits on whitespace when called with no arguments. When called with a separator, splits on that separator. When called with a separator and a maximum number of splits, splits on that separator at most max_splits times. (Can be called with null as the separator if you want to split on whitespace while still specifying max_splits.)
+		 * 
+		 * Mimics the behavior of Python’s string.split in edge cases, except for splitting on the empty string, which instead produces an array of single-character strings.
+		 */
+		split(seperator?: string, max_splits?: number): Expression<rArray>;
+		
+		/**
+		 * Uppercases a string.
+		 */
+		upcase(): Expression<string>;
+		
+		/**
+		 * Lowercases a string.
+		 */
+		downcase(): Expression<string>;
+		
+		/**
+		 * Sum two numbers, concatenate two strings, or concatenate 2 arrays.
+		 */
+		add(n: any): Expression<any>;
+		/**
+		 * Subtract two numbers.
+		 */
+		sub(n: any): Expression<any>;
+		/**
+		 * Multiply two numbers, or make a periodic array.
+		 */
+		mul(n: number): Expression<any>;
+		/**
+		 * Divide two numbers.
+		 */
+		div(n: number): Expression<number>;
+		/**
+		 * Find the remainder when dividing two numbers.
+		 */
+		mod(n: number): Expression<number>;
+		
+		/**
+		 * Compute the logical “and” of two or more values.
+		 */
+		and(b: boolean): Expression<boolean>;
+		/**
+		 * Compute the logical “or” of two or more values.
+		 */
+		or(b: boolean): Expression<boolean>;
+		/**
+		 * Test if two values are equal.
+		 */
+		eq(v: any): Expression<boolean>;
+		/**
+		 * Test if two values are not equal.
+		 */
+		ne(v: any): Expression<boolean>;
+		
+		/**
+		 * Test if the first value is greater than other.
+		 */
+		gt(value: T): Expression<boolean>;
+		/**
+		 * Test if the first value is greater than or equal to other.
+		 */
+		ge(value: T): Expression<boolean>;
+		/**
+		 * Test if the first value is less than other.
+		 */
+		lt(value: T): Expression<boolean>;
+		
+		/**
+		 * Test if the first value is less than or equal to other.
+		 */
+		le(value: T): Expression<boolean>;
+		
+		/**
+		 * Compute the logical inverse (not) of an expression.
+		 * 
+		 * not can be called either via method chaining, immediately after an expression that evaluates as a boolean value, or by passing the expression as a parameter to not.
+		 */
+		not(bool?: boolean): Expression<boolean>;
+
+		/**
+		 * Handle non-existence errors. Tries to evaluate and return its first argument. If an error related to the absence of a value is thrown in the process, or if its first argument returns null, returns its second argument. (Alternatively, the second argument may be a function which will be called with either the text of the non-existence error or null.)
+		 */
+		default(default_value: T): Expression<T>;
+		
+		/**
+		 * Gets the type of a value.
+		 */
+		typeOf(): Expression<string>;
+		
+		/**
+		 * Get information about a ReQL value.
+		 */
+		info(): Expression<Object>;
+	}
+	
+		interface DistanceOptions {
+		/**
+		 * the reference ellipsoid to use for geographic coordinates. Possible values are WGS84 (the default), a common standard for Earth’s geometry, or unit_sphere, a perfect sphere of 1 meter radius.
+		 */
+		geoSystem?: string;
+		/**
+		 * Unit for the radius distance. Possible values are m (meter, the default), km (kilometer), mi (international mile), nm (nautical mile), ft (international foot).
+		 */
+		unit?: string;
+	}
+
 	interface CircleOptions extends DistanceOptions {
 		/**
 		 * the number of vertices in the polygon or line. Defaults to 32.
@@ -288,13 +1108,6 @@ declare module rethinkdb {
  * if true (the default) the circle is filled, creating a polygon; if false the circle is unfilled (creating a line).
  */
 		fill?: boolean;
-	}
-
-	interface Geometry extends Includes<boolean>, Intersects<boolean> {
-		/**
-		 * Convert a ReQL geometry object to a GeoJSON object.
-		 */
-		toGeojson(): Operation<Object>;
 	}
 
 	interface HttpOptions {
@@ -382,158 +1195,12 @@ n: n requests will be made
 		timeout: number;
 	}
 
-	interface Time {
-		/**
- * Return a new time object with a different timezone. While the time stays the same, the results returned by methods such as hours() will change since they take the timezone into account. The timezone argument has to be of the ISO 8601 format.
- */
-		inTimezone(timezone: string): Time;
-		
-		/**
- * Return the timezone of the time object.
- */
-		timezone(): string;
-		
-		/**
- * Return if a time is between two other times (by default, inclusive for the start, exclusive for the end).
- */
-		during(startTime: Time, endTime: Time, options?: LeftRightBound): boolean;
-		
-		/**
- * Return a new time object only based on the day, month and year (ie. the same day at 00:00).
- */
-		date(): Time;
-		
-		/**
- * Return the number of seconds elapsed since the beginning of the day stored in the time object.
- */
-		timeOfDay(): number;
-		
-		/**
- * Return the year of a time object.
- */
-		year(): number;
-		
-		/**
- * Return the month of a time object as a number between 1 and 12. For your convenience, the terms r.january, r.february etc. are defined and map to the appropriate integer.
- */
-		month(): number;
-		
-		/**
- * Return the day of a time object as a number between 1 and 31.
- */
-		day(): number;
-		
-		/**
- * Return the day of week of a time object as a number between 1 and 7 (following ISO 8601 standard). For your convenience, the terms r.monday, r.tuesday etc. are defined and map to the appropriate integer.
- */
-		dayOfWeek(): number;
-		
-		/**
- * Return the day of the year of a time object as a number between 1 and 366 (following ISO 8601 standard).
- */
-		dayOfYear(): number;
-		
-		/**
- * Return the hour in a time object as a number between 0 and 23.
- */
-		hours(): number;
-		
-		/**
- * Return the minute in a time object as a number between 0 and 59.
- */
-		minutes: number;
-		
-		/**
- * Return the seconds in a time object as a number between 0 and 59.999 (double precision).
- */
-		seconds(): number;
-		
-		/**
- * Convert a time object to a string in ISO 8601 format.
- */
-		toISO8601(): string;
-		
-		/**
- * Convert a time object to its epoch time.
- */
-		toEpochTime(): number;
-	}
-
 	interface ISO8601Options {
 		defaultTimezone: string;
 	}
 
 	interface RandomOptions {
 		float: boolean;
-	}
-
-	class Connection {
-		/**
-		 * Close an open connection.
-		 * 
-		 * Closing a connection normally waits until all outstanding requests have finished and then frees any open resources associated with the connection. By passing false to the noreply_wait optional argument, the connection will be closed immediately, possibly aborting any outstanding noreply writes.
-		 * 
-		 * A noreply query is executed by passing the noreply option to the run command, indicating that run() should not wait for the query to complete before returning. You may also explicitly wait for a noreply query to complete by using the noreplyWait command.
- 		 */
-		close(options: noReplyWaitOptions, callback: (err: Error) => void): void;
-		
-		/**
- 		 * Close an open connection.
- 		 *
- 	 	 * Closing a connection normally waits until all outstanding requests have finished and then frees any open resources associated with the connection. By passing false to the noreply_wait optional argument, the connection will be closed immediately, possibly aborting any outstanding noreply writes.
- 		 *
- 		 * A noreply query is executed by passing the noreply option to the run command, indicating that run() should not wait for the query to complete before returning. You may also explicitly wait for a noreply query to complete by using the noreplyWait command.
- 		 */
-		close(callback: (err: Error) => void): void;
-		
-		/**
- 		 * Close an open connection.
-		 *
- 		 * Closing a connection normally waits until all outstanding requests have finished and then frees any open resources associated with the connection. By passing false to the noreply_wait optional argument, the connection will be closed immediately, possibly aborting any outstanding noreply writes.
- 		 *
- 		 * A noreply query is executed by passing the noreply option to the run command, indicating that run() should not wait for the query to complete before returning. You may also explicitly wait for a noreply query to complete by using the noreplyWait command.
- 		 */
-		close(options?: noReplyWaitOptions): Promise<void>;
-
-		/**
- 		 * Close and reopen a connection.
- 		 *
- 		 * Closing a connection normally waits until all outstanding requests have finished and then frees any open resources associated with the connection. By passing false to the noreply_wait optional argument, the connection will be closed immediately, possibly aborting any outstanding noreply writes.
- 		 *
- 		 * A noreply query is executed by passing the noreply option to the run command, indicating that run() should not wait for the query to complete before returning. You may also explicitly wait for a noreply query to complete by using the noreplyWait command.
- 		 */
-		reconnect(options: noReplyWaitOptions, callback: (err: Error, conn: Connection) => void): Connection;
-		
-		/**
- 		 * Close and reopen a connection.
- 		 *
- 		 * Closing a connection normally waits until all outstanding requests have finished and then frees any open resources associated with the connection. By passing false to the noreply_wait optional argument, the connection will be closed immediately, possibly aborting any outstanding noreply writes.
- 		 *
- 		 * A noreply query is executed by passing the noreply option to the run command, indicating that run() should not wait for the query to complete before returning. You may also explicitly wait for a noreply query to complete by using the noreplyWait command.
- 		 */
-		reconnect(callback: (err: Error, conn: Connection) => void): Connection;
-		/**
- 		 * Close and reopen a connection.
- 		 *
- 		 * Closing a connection normally waits until all outstanding requests have finished and then frees any open resources associated with the connection. By passing false to the noreply_wait optional argument, the connection will be closed immediately, possibly aborting any outstanding noreply writes.
- 		 *
- 		 * A noreply query is executed by passing the noreply option to the run command, indicating that run() should not wait for the query to complete before returning. You may also explicitly wait for a noreply query to complete by using the noreplyWait command.
- 		 */
-		reconnect(options?: noReplyWaitOptions): Promise<Connection>;
-
-		/**
- 		 * Change the default database on this connection.
- 		 */
-		use(dbName: string): void;
-
-		/**
- 		 * ensures that previous queries with the noreply flag have been processed by the server. Note that this guarantee only applies to queries run on the given connection.
- 		 */
-		noreplyWait(callback: (err: Error) => void): void;
-		/**
- 		 * ensures that previous queries with the noreply flag have been processed by the server. Note that this guarantee only applies to queries run on the given connection.
- 		 */
-		noreplyWait(): Promise<void>;
 	}
 
 	interface Wait {
@@ -560,175 +1227,6 @@ n: n requests will be made
 		 */
 		ready: number;
 		status_changes: OldValNewVal<TableStatus>[];
-	}
-
-	interface Db extends Admin<DbConfig>, Wait {
-		/**
- 		 * Create a table. A RethinkDB table is a collection of JSON documents.
- 		 *
- 		 * If a table with the same name already exists, the command throws RqlRuntimeError.
- 		 *
- 		 * Note: Only alphanumeric characters and underscores are valid for the table name.
- 		 */
-		tableCreate(tableName: string, options?: TableCreateOptions): Operation<TableCreateResult>;
-		/**
- 		 * Drop a table from a database. The table and all its data will be deleted.
-		 */
-		tableDrop(tableName: string): Operation<TableDropResult>;
-		/**
- 		 * List all table names in a database
- 		 */
-		tableList(): Operation<string[]>;
-
-		/**
- 		 * Reference a table.
- 		 */
-		table(name: string, options?: TableOptions): Table;
-	}
-
-	interface Table extends Sequence, Writeable, Selection, Stream, Admin<TableConfig>, Wait {
-		/**
- 		 * Create a new secondary index on a table. Secondary indexes improve the speed of many read queries at the slight cost of increased storage space and decreased write performance. For more information about secondary indexes, read the article “Using secondary indexes in RethinkDB.”
- 		 *
- 		 * RethinkDB supports different types of secondary indexes:
- 		 *
-	     * Simple indexes based on the value of a single field.
-		 * Compound indexes based on multiple fields.
-		 * Indexes based on arbitrary expressions.
-		 *
-		 * The indexFunction can be an anonymous function or a binary representation obtained from the function field of indexStatus.
-		 *
-		 * If successful, createIndex will return an object of the form {"created": 1}. If an index by that name already exists on the table, a RqlRuntimeError will be thrown.
-		 */
-		indexCreate(indexName: string, index: ExpressionFunction<any>): Operation<CreateResult>;
-
-		/**
-		 * Create a new secondary index on a table. Secondary indexes improve the speed of many read queries at the slight cost of increased storage space and decreased write performance. For more information about secondary indexes, read the article “Using secondary indexes in RethinkDB.”
-		 *
-		 * RethinkDB supports different types of secondary indexes:
-		 *
-		 * Multi indexes based on arrays of values, created when the multi optional argument is true.
-		 * Geospatial indexes based on indexes of geometry objects, created when the geo optional argument is true.
-		 *
-		 * If successful, createIndex will return an object of the form {"created": 1}. If an index by that name already exists on the table, a RqlRuntimeError will be thrown.
-		 */
-		indexCreate(indexName: string, indexOptions?: IndexCreateOptions): Operation<CreateResult>;
-
-		/**
-		 * Delete a previously created secondary index of this table.
-		 */
-		indexDrop(name: string): Operation<DropResult>;
-
-		/**
-		 * List all the secondary indexes of this table.
-		 */
-		indexList(): Operation<string[]>;
-
-		/**
-		 * Rename an existing secondary index on a table. If the optional argument overwrite is specified as true, a previously existing index with the new name will be deleted and the index will be renamed. If overwrite is false (the default) an error will be raised if the new index name already exists.
-		 */
-		indexRename(oldIndexName: string, newIndexName: string, options?: OverwriteOptions): Operation<RenameResult>;
-
-		/**
-		 * Get the status of the specified indexes on this table, or the status of all indexes on this table if no indexes are specified.
-		 */
-		indexStatus(...indexes: string[]): Selection;
-
-		/**
-		 * Wait for the specified indexes on this table to be ready, or for all 	indexes on this table to be ready if no indexes are specified.
-		 */
-		indexWait(...indexes: string[]): Selection;
-
-		/**
-		 * Insert documents into a table. Accepts a single document, an array of documents or a stream
-		 *
-		 * Example: Insert a document into the table posts:
-		 * r.table("posts").insert({
-		 * id: 1,
-		 * title: "Lorem ipsum",
-		 * content: "Dolor sit amet"
-		 * }).run(conn, callback)
-		 *
-		 * Example: Insert multiple documents into the table users:
-		 * r.table("users").insert([
-		 * {id: "william", email: "william@rethinkdb.com"},
-		 * {id: "lara", email: "lara@rethinkdb.com"}
-		 * ]).run(conn, callback)
-		 *
-		 * Example: Copy the documents from posts to postsBackup:
-		 * r.table("postsBackup").insert( r.table("posts") ).run(conn, callback)
-		 */
-		insert(object: any | any[]| Table, options?: InsertOptions): Operation<InsertResult>;
-
-		/**
-		 * Get a document by primary key.
-		 *
-		 * If no document exists with that primary key, get will return null.
-		 */
-		get(key: string | number): SingleRowSelection;
-
-		/**
-		 * Get all documents where the given value matches the value of the requested index.
-		 *
-		 * Example: Without an index argument, we default to the primary index. While get will either return the document or null when no document with such a primary key value exists, this will return either a one or zero length stream.
-		 * r.table('dc').getAll('superman').run(conn, callback)
-		 *
-		 * Example: Secondary index keys are not guaranteed to be unique so we cannot query via get when using a secondary index.
-		 * r.table('marvel').getAll('man_of_steel', {index:'code_name'}).run(conn, callback)
-		 *
-		 * Example: You can get multiple documents in a single call to get_all.
-		 * r.table('dc').getAll('superman', 'ant man').run(conn, callback)
-		 */
-		getAll(...keys: any[]): Selection;
-
-		/**
-		 * ensures that writes on a given table are written to permanent storage. Queries that specify soft durability ({durability: 'soft'}) do not give such guarantees, so sync can be used to ensure the state of these queries. A call to sync does not return until all previous writes to the table are persisted.
-		 */
-		sync(): Operation<void>;
-
-		/**
-		 * Get all documents between two keys.
-		 *
-		 * You may also use the special constants r.minval and r.maxval for boundaries, which represent “less than any index key” and “more than any index key” respectively. For instance, if you use r.minval as the lower key, then between will return all documents whose primary keys (or indexes) are less than the specified upper key.
-		 *
-		 * Note that compound indexes are sorted using lexicographical order.
-		 *
-		 * Note: Between works with secondary indexes on date fields, but will not work with unindexed date fields. To test whether a date value is between two other dates, use the during command, not between.
-		 *
-		 * Note: RethinkDB uses byte-wise ordering for between and does not support Unicode collations; non-ASCII characters will be sorted by UTF-8 codepoint.
-		 *
-		 * Note: If you chain between after orderBy, the between command must use the index specified in orderBy, and will default to that index. Trying to specify another index will result in a RqlRuntimeError.
-		 */
-		between(lower: any, upper: any, index?: IndexOptions): Selection;
-
-		/**
-		 * Sort the sequence by document values of the given key(s). To specify the ordering, wrap the attribute with either r.asc or r.desc (defaults to ascending).
-		 * 
-		 * Sorting without an index requires the server to hold the sequence in memory, and is limited to 100,000 documents (or the setting of the arrayLimit option for run). Sorting with an index can be done on arbitrarily large tables, or after a between command using the same index.
-		 * 
-		 * syntax: table.orderBy([key1...], {index: index_name}) → selection<stream>
-		 */
-		orderBy(...keys: any[]): rSelection<Stream>;
-
-		/**
-		 * Removes duplicates from elements in a sequence.
-		 */
-		distinct(options?: IndexNameOptions): Stream;
-		
-		/**
-		 * Get all documents where the given geometry object intersects the geometry object of the requested geospatial index.
-		 */
-		getIntersecting(geometry: Geometry, option: IndexNameOptions): Selection;
-		
-		/**
-		 * Get all documents where the specified geospatial index is within a certain distance of the specified point (default 100 kilometers).
-		 */
-		getNearest(point: Point, options: GetNearestOptions): Selection;
-		
-		/**
-		 * Return the status of a table.
-		 */
-		status(): rSelection<TableStatus>;
 	}
 
 	interface Admin<T> {
@@ -794,20 +1292,6 @@ n: n requests will be made
 		maxDist?: number;
 		unit?: string;
 		geoSystem?: string;
-	}
-
-	interface rSelection<T> extends rOrderBy<rSelection<rdbArray>> {
-
-	}
-
-	/**
-	 * Cursors and feeds implement the same interface as Node’s EventEmitter.
-	 */
-	interface Cursor extends rNext, rEach, rToArray, NodeJS.EventEmitter, Selection {
-		/**
-		 * Close a cursor. Closing a cursor cancels the corresponding query and frees the memory associated with the open request.
-		 */
-		close(): void;
 	}
 
 	interface ConnectOptions {
@@ -1195,22 +1679,11 @@ n: n requests will be made
 		geo?: boolean;
 	}
 
-	interface SingleRowSelection extends Writeable, Selection, rChanges, rPluck<rObject>, rWithout<rObject>, rMerge<rObject>, rGetField<rObject>, rKeys, rSingleField<any> {
-		/**
-		 * Convert a ReQL value or object to a JSON string. You may use either toJsonString or toJSON.
-		 */
-		toJsonString: Expression<string>;
-		/**
-		 * Convert a ReQL value or object to a JSON string. You may use either toJsonString or toJSON.
-		 */
-		toJSON(): Expression<string>;
-	}
-
 	interface rKeys {
 		/**
 		 * Return an array containing all of the object’s keys.
 		 */
-		keys(): rdbArray;
+		keys(): rArray;
 	}
 
 	interface UpdateOptions {
@@ -1355,13 +1828,10 @@ n: n requests will be made
 		 *
 		 * If the table becomes unavailable, the changefeed will be disconnected, and a runtime exception will be thrown by the driver.
 		 */
-		changes(options?: ChangesOptions): Selection;
+		changes(options?: ChangesOptions): rSelection<Stream>;
 	}
 
-	interface Stream extends Sequence, rChanges, rFilter<Stream>, rStreamArray<Stream>, rSlice<Stream>, rUninion<Stream>, rSample<rdbArray> {
-	}
-
-	interface rFilter<T> {
+	interface rFilter<T> extends Writeable {
 		/**
 		 * Get all the documents for which the given predicate is true.
 		 *
@@ -1369,7 +1839,7 @@ n: n requests will be made
 		 *
 		 * By default, filter will silently skip documents with missing fields: if the predicate tries to access a field that doesn’t exist (for instance, the predicate {age: 30} applied to a document with no age field), that document will not be returned in the result set, and no error will be generated. This behavior can be changed with the default optional argument.
 		 */
-		filter(predicate: ExpressionFunction<boolean>, options?: DefaultOptions): T;
+		filter(predicate: ExpressionFunction<boolean>, options?: DefaultOptions): Operation<T>;
 		/**
 		 * Get all the documents for which the given predicate is true.
 		 *
@@ -1377,7 +1847,7 @@ n: n requests will be made
 		 *
 		 * By default, filter will silently skip documents with missing fields: if the predicate tries to access a field that doesn’t exist (for instance, the predicate {age: 30} applied to a document with no age field), that document will not be returned in the result set, and no error will be generated. This behavior can be changed with the default optional argument.
 		 */
-		filter(predicate: Expression<boolean>, options?: DefaultOptions): T;
+		filter(predicate: Expression<boolean>, options?: DefaultOptions): Operation<T>;
 		/**
 		 * Get all the documents for which the given predicate is true.
 		 *
@@ -1385,13 +1855,7 @@ n: n requests will be made
 		 *
 		 * By default, filter will silently skip documents with missing fields: if the predicate tries to access a field that doesn’t exist (for instance, the predicate {age: 30} applied to a document with no age field), that document will not be returned in the result set, and no error will be generated. This behavior can be changed with the default optional argument.
 		 */
-		filter(predicate: { [key: string]: any }): T;
-	}
-
-	interface rBinary extends rSlice<rBinary>, rCoerceTo<string> {
-		count(): number;
-		typeOf(): any;
-		info(): any;
+		filter(predicate: { [key: string]: any }): Operation<T>;
 	}
 
 	interface rCoerceTo<T> {
@@ -1399,68 +1863,6 @@ n: n requests will be made
 		 * Convert a value of one type into another.
 		 */
 		coerceTo(value: T): Expression<T>;
-	}
-
-	interface rdbArray extends Sequence, rStreamArray<rdbArray>, rNext, rEach, rToArray, rFilter<rdbArray>, rJoins<rdbArray>, rSlice<rdbArray>, rUninion<rdbArray>, rSample<rdbArray>, rPluck<rdbArray>, rWithout<rdbArray>, rMerge<rdbArray>, rHasFields<rdbArray>, rCoerceTo<rObject>, rMap<rdbArray>, rWithFields<rdbArray>, rSkip<rdbArray>, rLimit<rdbArray> {
-		/**
-		 * Append a value to an array.
-		 */
-		append(prop: string): Expression<rdbArray>;
-
-		/**
-		 * Prepend a value to an array.
-		 */
-		prepend(prop: string): Expression<rdbArray>;
-
-		/**
-		 * Remove the elements of one array from another array.
-		 */
-		difference(arr: string[]): Expression<rdbArray>;
-
-		/**
-		 * Add a value to an array and return it as a set (an array with distinct values).
-		 */
-		setInsert(prop: string): Expression<rdbArray>;
-
-		/**
-		 * Add a several values to an array and return it as a set (an array with distinct values).
-		 */
-		setUnion(arr: string[]): Expression<rdbArray>;
-
-		/**
-		 * Intersect two arrays returning values that occur in both of them as a set (an array with distinct values).
-		 */
-		setIntersection(arr: string[]): Expression<rdbArray>;
-
-		/**
-		 * Remove the elements of one array from another and return them as a set (an array with distinct values).
-		 */
-		setDifference(arr: string[]): Expression<rdbArray>;
-
-		/**
-		 * Insert a value in to an array at a given index. Returns the modified array.
-		 */
-		insertAt(index: number, value: string): rdbArray;
-
-		/**
-		 * Insert several values in to an array at a given index. Returns the modified array.
-		 */
-		spliceAt(index: number, value: string): rdbArray;
-
-		/**
-		 * Remove one or more elements from an array at a given index. Returns the modified array.
-		 */
-		deleteAt(index: number, endIndex?: number): rdbArray;
-
-		/**
-		 * Remove one or more elements from an array at a given index. Returns the modified array.
-		 */
-		changeAt(index: number, value: string): rdbArray;
-		
-		/**
-		 * Get the nth element of a sequence, counting from zero. If the argument is negative, count from the last element.
-		 */
-		(index: number): Expression<any>;
 	}
 
 	interface rSingleField<T> {
@@ -1511,10 +1913,6 @@ n: n requests will be made
 		toArray(): Promise<any>;
 	}
 
-	interface rFeed extends rEach {
-
-	}
-
 	interface rEach {
 		/**
 		 * Lazily iterate over the result set one element at a time. The second callback is optional and is called when the iteration stops (when there are no more rows or when the callback returns false).
@@ -1522,7 +1920,7 @@ n: n requests will be made
 		each(callback: (err: Error, row: any) => void, onFinishedCallback?: (err: Error, results: any) => void): void;
 	}
 
-	interface Operation<T> {
+	interface Operation<T> extends RqlDo {
 		/**
 		 * Run a query on a connection. The callback will get either an error, a single JSON result, or a cursor, depending on the query.
 		 */
@@ -1645,191 +2043,6 @@ n: n requests will be made
 		intersects(geometry: Geometry): T;
 	}
 
-	interface Sequence extends rJoins<Stream>, rSample<Selection>, rPluck<Stream>, rWithout<Stream>, rMerge<Stream>, rGetField<Sequence>, rHasFields<Stream>, rNth<Sequence>, rSingleField<Sequence>, rCoerceTo<rdbArray>, Includes<Sequence>, Intersects<Sequence>, rMap<Stream>, rWithFields<Stream>, rSkip<Stream>, rLimit<Stream> {
-		/**
-		 * Join tables using a field on the left-hand sequence matching primary keys or secondary indexes on the right-hand table. eqJoin is more efficient than other ReQL join types, and operates much faster. Documents in the result set consist of pairs of left-hand and right-hand documents, matched when the field on the left-hand side exists and is non-null and an entry with that field’s value exists in the specified index on the right-hand side.
-		 */
-		eqJoin(leftField: string, rightTable: Selection, index?: IndexNameOptions): JoinResult;
-
-		/**
-		 * Sort the sequence by document values of the given key(s). To specify the ordering, wrap the attribute with either r.asc or r.desc (defaults to ascending).
-		 * 
-		 * Sorting without an index requires the server to hold the sequence in memory, and is limited to 100,000 documents (or the setting of the arrayLimit option for run). Sorting with an index can be done on arbitrarily large tables, or after a between command using the same index.
-		 *
-		 *  syntax: table.orderBy([key1...], {index: index_name}) → selection<stream>
-		 */
-		orderBy(...keys: any[]): rdbArray;
-
-		/**
-		 * Get the nth element of a sequence, counting from zero. If the argument is negative, count from the last element.
-		 */
-		nth(n: number): Expression<any>;
-
-		/**
-		 * Get the indexes of an element in a sequence. If the argument is a predicate, get the indexes of all elements matching it.
-		 */
-		offsetsOf(expr: string | Function): rdbArray;
-
-		/**
-		 * Test if a sequence is empty.
-		 */
-		isEmpty(): Expression<boolean>;
-
-		/**
-		 * Takes a stream and partitions it into multiple groups based on the fields or functions provided.
-		 *
-		 * With the multi flag single documents can be assigned to multiple groups, similar to the behavior of multi-indexes. When multi is true and the grouping value is an array, documents will be placed in each group that corresponds to the elements of the array. If the array is empty the row will be ignored.
-		 *
-		 * Examples:
-		 * r.table('games').group('player').run(conn, callback)
-		 * r.table('games').group('player', 'type').max('points')('points').run(conn, callback)
-		 */
-		group(...fields: any[]): GroupedStream;
-
-		/**
-		 * Takes a stream and partitions it into multiple groups based on the fields or functions provided.
-		 *
-		 * With the multi flag single documents can be assigned to multiple groups, similar to the behavior of multi-indexes. When multi is true and the grouping value is an array, documents will be placed in each group that corresponds to the elements of the array. If the array is empty the row will be ignored.
-		 *
-		 * Examples:
-		 * r.table('games').group(function(game) {
-		 * return game.pluck('player', 'type')
-		 * }).max('points')('points').run(conn, callback)
-		 *
-		 * r.table('matches').group(
-			  [r.row('date').year(), r.row('date').month()]
-			).count().run(conn, callback)
-		 */
-		group(expression: Function, options?: GroupOptions): GroupedStream;
-
-		/**
-		 * Produce a single value from a sequence through repeated application of a reduction function. The reduction function can be called on:
-		 * * two elements of the sequence
-		 * * one element of the sequence and one result of a previous reduction
-		 * * two results of previous reductions
-		 * The reduction function can be called on the results of two previous reductions because the reduce command is distributed and parallelized across shards and CPU cores. A common mistaken when using the reduce command is to suppose that the reduction is executed from left to right. Read the map-reduce in RethinkDB article to see an example.
-		 * If the sequence is empty, the server will produce a RqlRuntimeError that can be caught with default.
-			If the sequence has only one element, the first element will be returned.
-		 */
-		reduce(r: ReduceFunction<any>): Expression<any>;
-
-		/**
-		 * Count the number of elements in the sequence. With a single argument, count the number of elements equal to it. If the argument is a function, it is equivalent to calling filter before count.
-		 */
-		count(): Expression<number>;
-
-		/**
-		 * Sums all the elements of a sequence. If called with a field name, sums all the values of that field in the sequence, skipping elements of the sequence that lack that field. If called with a function, calls that function on every element of the sequence and sums the results, skipping elements of the sequence where that function returns null or a non-existence error.
-		 */
-		sum(arr: number[]): Expression<number>;
-		/**
-		 * Sums all the elements of a sequence. If called with a field name, sums all the values of that field in the sequence, skipping elements of the sequence that lack that field. If called with a function, calls that function on every element of the sequence and sums the results, skipping elements of the sequence where that function returns null or a non-existence error.
-		 */
-		sum(field: string): Expression<number>;
-		/**
-		 * Sums all the elements of a sequence. If called with a field name, sums all the values of that field in the sequence, skipping elements of the sequence that lack that field. If called with a function, calls that function on every element of the sequence and sums the results, skipping elements of the sequence where that function returns null or a non-existence error.
-		 */
-		sum(expr: Function): Expression<number>;
-
-		/**
-		 * Averages all the elements of a sequence. If called with a field name, averages all the values of that field in the sequence, skipping elements of the sequence that lack that field. If called with a function, calls that function on every element of the sequence and averages the results, skipping elements of the sequence where that function returns null or a non-existence error.
-		 *
-		 * Produces a non-existence error when called on an empty sequence. You can handle this case with default.
-		 */
-		avg(arr: number[]): Expression<number>;
-		/**
-		 * Averages all the elements of a sequence. If called with a field name, averages all the values of that field in the sequence, skipping elements of the sequence that lack that field. If called with a function, calls that function on every element of the sequence and averages the results, skipping elements of the sequence where that function returns null or a non-existence error.
-		 *
-		 * Produces a non-existence error when called on an empty sequence. You can handle this case with default.
-		 */
-		avg(field: string): Expression<number>;
-		/**
-		 * Averages all the elements of a sequence. If called with a field name, averages all the values of that field in the sequence, skipping elements of the sequence that lack that field. If called with a function, calls that function on every element of the sequence and averages the results, skipping elements of the sequence where that function returns null or a non-existence error.
-		 *
-		 * Produces a non-existence error when called on an empty sequence. You can handle this case with default.
-		 */
-		avg(expr: Function): Expression<number>;
-
-		/**
-		 * Finds the minimum element of a sequence. The min command can be called with:
-		 * * a field name, to return the element of the sequence with the smallest value in that field;
-		 * * an index (the primary key or a secondary index), to return the element of the sequence with the smallest value in that index;
-		 * * a function, to apply the function to every element within the sequence and return the element which returns the smallest value from the function, ignoring any elements where the function produces a non-existence error.
-		 * 
-		 * Calling min on an empty sequence will throw a non-existence error; this can be handled using the default command.
-		 */
-		min(field?: string): Expression<any>;
-		/**
-		 * Finds the minimum element of a sequence. The min command can be called with:
-		 * * a field name, to return the element of the sequence with the smallest value in that field;
-		 * * an index (the primary key or a secondary index), to return the element of the sequence with the smallest value in that index;
-		 * * a function, to apply the function to every element within the sequence and return the element which returns the smallest value from the function, ignoring any elements where the function produces a non-existence error.
-		 * 
-		 * Calling min on an empty sequence will throw a non-existence error; this can be handled using the default command.
-		 */
-		min(options: IndexNameOptions): Expression<any>;
-		/**
-		 * Finds the minimum element of a sequence. The min command can be called with:
-		 * * a field name, to return the element of the sequence with the smallest value in that field;
-		 * * an index (the primary key or a secondary index), to return the element of the sequence with the smallest value in that index;
-		 * * a function, to apply the function to every element within the sequence and return the element which returns the smallest value from the function, ignoring any elements where the function produces a non-existence error.
-		 * 
-		 * Calling min on an empty sequence will throw a non-existence error; this can be handled using the default command.
-		 */
-		min(expr: Function): Expression<any>;
-
-		/**
-		 * Finds the maximum element of a sequence.
-		 */
-		max(field?: string): Expression<any>;
-		/**
-		 * Finds the maximum element of a sequence.
-		 */
-		max(options: IndexNameOptions): Expression<any>;
-		/**
-		 * Finds the maximum element of a sequence.
-		 */
-		max(expr: Function): Expression<any>;
-
-		/**
-		 * Removes duplicates from elements in a sequence.
-		 */
-		distinct(): rdbArray;
-
-		/**
-		 * When called with values, returns true if a sequence contains all the specified values. When called with predicate functions, returns true if for each predicate there exists at least one element of the stream where that predicate returns true.
-		 *
-		 * Values and predicates may be mixed freely in the argument list.
-		 */
-		contains(prop: string): Expression<boolean>;
-
-		/**
-		 * When called with values, returns true if a sequence contains all the specified values. When called with predicate functions, returns true if for each predicate there exists at least one element of the stream where that predicate returns true.
-		 *
-		 * Values and predicates may be mixed freely in the argument list.
-		 */
-		contains(expr: Function): Expression<boolean>;
-		
-		/**
-		 * Loop over a sequence, evaluating the given write query for each element.
-		 */
-		forEach(write_query: Function): Expression<any>;
-	}
-
-	interface GroupedStream {
-		/**
-		 * Takes a grouped stream or grouped data and turns it into an array of objects representing the groups. Any commands chained after ungroup will operate on this array, rather than operating on each group individually. This is useful if you want to e.g. order the groups by the value of their reduction.
-		 *
-		 * The format of the array returned by ungroup is the same as the default native format of grouped data in the javascript driver and data explorer.
-		 *
-		 * Examples:
-		 * r.table('games')
-			.group('player').max('points')('points')
-			.ungroup().orderBy(r.desc('reduction')).run(conn, callback)
-		 */
-		ungroup(): rdbArray;
-	}
-
 	interface GroupOptions {
 		index?: string;
 		multi?: boolean;
@@ -1837,9 +2050,9 @@ n: n requests will be made
 
 	interface rSample<T> {
 		/**
-		 * Select a given number of elements from a sequence with uniform random distribution. Selection is done without replacement.
+		 * Select a given number of elements from a sequence with uniform random distribution. rSelection<any> is done without replacement.
 		 */
-		sample(n: number): Selection;
+		sample(n: number): rSelection<any>;
 	}
 
 	interface rUninion<T> {
@@ -1894,7 +2107,7 @@ n: n requests will be made
 		/**
 		 * End the sequence after the given number of elements
 		 */
-		limit(n: number): Selection;
+		limit(n: number): rSelection<any>;
 	}
 
 	interface rJoins<T> {
@@ -1906,225 +2119,5 @@ n: n requests will be made
 		 * Returns a left outer join of two sequences.
 		 */
 		outerJoin(otherSequence: Sequence, predicate: JoinFunction<boolean>): T;
-	}
-
-	interface rObject extends rPluck<rObject>, rWithout<rObject>, rMerge<rObject>, rGetField<any>, rHasFields<Boolean>, rKeys, rSingleField<any>, rCoerceTo<rdbArray> {
-
-	}
-
-	interface rHasFields<T> {
-		/**
-		 * Test if an object has one or more fields. An object has a field if it has that key and the key has a non-null value. For instance, the object {'a': 1,'b': 2,'c': null} has the fields a and b.
-		 */
-		hasFields(...fields: string[]): T;
-	}
-
-	interface rPluck<T> {
-		/**
-		 * Plucks out one or more attributes from either an object or a sequence of objects (projection).
-		 */
-		pluck(...props: string[]): T;
-		/**
-		 * Plucks out one or more attributes from either an object or a sequence of objects (projection).
-		 */
-		pluck(selector: rObject): T;
-	}
-
-	interface rWithout<T> {
-		/**
-		 * The opposite of pluck; takes an object or a sequence of objects, and returns them with the specified paths removed.
-		 */
-		without(...props: string[]): T;
-		/**
-		 * The opposite of pluck; takes an object or a sequence of objects, and returns them with the specified paths removed.
-		 */
-		without(selector: rObject): T;
-	}
-
-	interface rSlice<T> {
-		/**
-		 * Return the elements of a sequence within the specified range.
-		 */
-		slice(start: number, end?: number): T;
-		/**
-		 * Return the elements of a sequence within the specified range.
-		 */
-		slice(start: number, end: number, options?: LeftRightBound): T;
-		/**
-		 * Return the elements of a sequence within the specified range.
-		 */
-		slice(start: number, options?: LeftRightBound): T;
-	}
-
-	interface JoinResult {
-		left: any;
-		right: any;
-	}
-
-	interface rOrderBy<T> {
-		/**
-		 * 
-		 * Sort the sequence by document values of the given key(s). To specify the ordering, wrap the attribute with either r.asc or r.desc (defaults to ascending).
-		 * 
-		 * Sorting without an index requires the server to hold the sequence in memory, and is limited to 100,000 documents (or the setting of the arrayLimit option for run). Sorting with an index can be done on arbitrarily large tables, or after a between command using the same index.
-		 * 
-		 * Example: Order all the posts using the index date.
-		 * r.table('posts').orderBy({index: 'date'}).run(conn, callback)
-		 * 
-		 * Example: Order a sequence without an index.
-		 * r.table('posts').get(1)('comments').orderBy('date')
-		 */
-		orderBy(...keys: any[]): T;
-	}
-
-	interface rNth<T> {
-		/**
-		 * Get the nth element of a sequence, counting from zero. If the argument is negative, count from the last element.
-		 */
-		nth(n: number): T;
-	}
-
-	interface ExpressionFunction<U> {
-		(doc: Expression<any>): Expression<U>;
-	}
-
-	interface JoinFunction<U> {
-		(left: Expression<any>, right: Expression<any>): Expression<U>;
-	}
-
-	interface ReduceFunction<U> {
-		(left: Expression<any>, right: Expression<any>): Expression<U>;
-	}
-
-	interface rMerge<T> {
-		/**
-		 * Merge two or more objects together to construct a new object with properties from all. When there is a conflict between field names, preference is given to fields in the rightmost object in the argument list. merge also accepts a subquery function that returns an object, which will be used similarly to a map function.
-		 */
-		merge(query: Expression<rObject>): Expression<rObject>;
-	}
-
-	interface MatchResult {
-		/**
-		 * The matched string
-		 */
-		str: string,
-		/**
-		 * The matched string’s start
-		 */
-		start: number;
-		/**
-		 * The matched string’s end
-		 */
-		end: number;
-		/**
-		 * The capture groups defined with parentheses
-		 */
-		groups: MatchResult[];
-	}
-
-	interface Expression<T> extends Writeable, Operation<T>, RqlDo, rSingleField<Expression<any>>, rCoerceTo<string> {
-		/**
-		 * Matches against a regular expression. 
-		 * 
-		 * If no match is found, returns null.
-		 * 
-		 * Accepts RE2 syntax (https://code.google.com/p/re2/wiki/Syntax). You can enable case-insensitive matching by prefixing the regular expression with (?i). See the linked RE2 documentation for more flags.
-		 */
-		match(regexp: string): Expression<MatchResult | any>;
-		
-		/**
-		 * Splits a string into substrings. Splits on whitespace when called with no arguments. When called with a separator, splits on that separator. When called with a separator and a maximum number of splits, splits on that separator at most max_splits times. (Can be called with null as the separator if you want to split on whitespace while still specifying max_splits.)
-		 * 
-		 * Mimics the behavior of Python’s string.split in edge cases, except for splitting on the empty string, which instead produces an array of single-character strings.
-		 */
-		split(seperator?: string, max_splits?: number): Expression<rdbArray>;
-		
-		/**
-		 * Uppercases a string.
-		 */
-		upcase(): Expression<string>;
-		
-		/**
-		 * Lowercases a string.
-		 */
-		downcase(): Expression<string>;
-		
-		/**
-		 * Sum two numbers, concatenate two strings, or concatenate 2 arrays.
-		 */
-		add(n: any): Expression<any>;
-		/**
-		 * Subtract two numbers.
-		 */
-		sub(n: any): Expression<any>;
-		/**
-		 * Multiply two numbers, or make a periodic array.
-		 */
-		mul(n: number): Expression<any>;
-		/**
-		 * Divide two numbers.
-		 */
-		div(n: number): Expression<number>;
-		/**
-		 * Find the remainder when dividing two numbers.
-		 */
-		mod(n: number): Expression<number>;
-		
-		/**
-		 * Compute the logical “and” of two or more values.
-		 */
-		and(b: boolean): Expression<boolean>;
-		/**
-		 * Compute the logical “or” of two or more values.
-		 */
-		or(b: boolean): Expression<boolean>;
-		/**
-		 * Test if two values are equal.
-		 */
-		eq(v: any): Expression<boolean>;
-		/**
-		 * Test if two values are not equal.
-		 */
-		ne(v: any): Expression<boolean>;
-		
-		/**
-		 * Test if the first value is greater than other.
-		 */
-		gt(value: T): Expression<boolean>;
-		/**
-		 * Test if the first value is greater than or equal to other.
-		 */
-		ge(value: T): Expression<boolean>;
-		/**
-		 * Test if the first value is less than other.
-		 */
-		lt(value: T): Expression<boolean>;
-		
-		/**
-		 * Test if the first value is less than or equal to other.
-		 */
-		le(value: T): Expression<boolean>;
-		
-		/**
-		 * Compute the logical inverse (not) of an expression.
-		 * 
-		 * not can be called either via method chaining, immediately after an expression that evaluates as a boolean value, or by passing the expression as a parameter to not.
-		 */
-		not(bool?: boolean): Expression<boolean>;
-
-		/**
-		 * Handle non-existence errors. Tries to evaluate and return its first argument. If an error related to the absence of a value is thrown in the process, or if its first argument returns null, returns its second argument. (Alternatively, the second argument may be a function which will be called with either the text of the non-existence error or null.)
-		 */
-		default(default_value: T): Expression<T>;
-		
-		/**
-		 * Gets the type of a value.
-		 */
-		typeOf(): Expression<string>;
-		
-		/**
-		 * Get information about a ReQL value.
-		 */
-		info(): Expression<Object>;
 	}
 }

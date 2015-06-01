@@ -13,6 +13,9 @@
     },
     "geojson/geojson.d.ts": {
       "commit": "2ca2ee37d47df607cc006824c516050a4cf869f0"
+    },
+    "rethinkdb/rethinkdb.d.ts": {
+      "commit": "484544d14d400190b20f270341c97b16adc0f1ef"
     }
   }
 }
